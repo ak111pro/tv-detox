@@ -97,7 +97,7 @@ public class MainActivity extends Activity {
     private static final String ACTION = "action:", PREF_ACTIONS = "actions";
     private static final String[] ACTION_NAMES = {"killapps", "reboot"};
     private static final String[] ACTION_LABELS = {"Close all apps", "Restart TV"};
-    private static final int[][] ACTION_ICONS = {LineIcon.CLOSE_ALL, LineIcon.POWER};
+    private static final String[] ACTION_ICONS = {"mdi_close_box_multiple_outline", "mdi_restart"};
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "App info", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
     private static final int PER_ROW = 5, MAX_INPUTS = 4;
@@ -106,7 +106,7 @@ public class MainActivity extends Activity {
     private static final String QUICK = "quick:";
     private static final String[] QUICK_NAMES = {"bluetooth", "sound", "picture"};
     private static final String[] QUICK_LABELS = {"Bluetooth", "Sound", "Picture"};
-    private static final int[][] QUICK_ICONS = {LineIcon.BLUETOOTH, LineIcon.SOUND, LineIcon.PICTURE};
+    private static final String[] QUICK_ICONS = {"mdi_bluetooth", "mdi_volume_high", "mdi_image_outline"};
     private static final String NETWORK = "network";
     private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
 
@@ -143,11 +143,8 @@ public class MainActivity extends Activity {
 
     // The Settings tile opens a small menu: the home screen's own settings, then the TV's.
     // Brightness is left out: on the Philips TVs this fork runs on, the picture page it opens has no
-    // effect on the backlight.
+    // effect on the backlight (the Picture quick icon still opens that page).
     private static final String[] SETTINGS_ITEMS = {"Wallpaper", "TV settings"};
-    // Android TV 11 and later (Google TV too) has no Display page, but its "Display & Sound" page holds Picture.
-    private static final String[] TV_DISPLAY_SOUND = {"com.android.tv.settings",
-            "com.android.tv.settings.device.displaysound.DisplaySoundActivity"};
     // Wallpapers, saved by name: a gradient top to bottom, then a glow from the top left and one from
     // the bottom right. Dark ones first, then bright ones that get darker towards the bottom, so the
     // white labels stay easy to read. Only colours, no images, so every one costs the same as Dusk,
@@ -632,7 +629,7 @@ public class MainActivity extends Activity {
             qx += ib + ig;
         }
         for (int q : quick) {
-            addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), new LineIcon(QUICK_ICONS[q]), qx, null);
+            addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), mdi(QUICK_ICONS[q], null), qx, null);
             qx += ib + ig;
         }
         int clockX = pillX + leftW + mid;
@@ -644,12 +641,12 @@ public class MainActivity extends Activity {
         pillDate.setLayoutParams(dlp);
         qx = clockX + clockW + px(18) + dateW + mid;
         for (int a : actions) {
-            addIcon(ACTION + ACTION_NAMES[a], Strings.t(ACTION_LABELS[a]), new LineIcon(ACTION_ICONS[a]), qx, null);
+            addIcon(ACTION + ACTION_NAMES[a], Strings.t(ACTION_LABELS[a]), mdi(ACTION_ICONS[a], null), qx, null);
             qx += ib + ig;
         }
         netIcon = addIcon(NETWORK, Strings.t("Network"), null, qx, null);
         qx += ib + ig;
-        addIcon(SETTINGS, Strings.t("Settings"), new LineIcon(LineIcon.SETTINGS), qx, null);
+        addIcon(SETTINGS, Strings.t("Settings"), mdi("mdi_cog_outline", null), qx, null);
         netState = -1;
         refreshNetwork();
 
@@ -849,15 +846,11 @@ public class MainActivity extends Activity {
             showAddMenu(-1);
             return;
         } else if (SETTINGS.equals(key)) {
-            // A box has no screen of its own to dim: its picture is the TV's, on the TV's remote. On NVIDIA
-            // Shield, Brightness also fell back to a Display & Sound page that's listed but missing there.
             List<String> list = new ArrayList<>(Arrays.asList(SETTINGS_ITEMS));
-            if (isBox(this)) list.remove("Brightness");
             if (!hiddenInputs().isEmpty()) list.add("Show hidden inputs");
             final String[] items = list.toArray(new String[0]);
             dropdown(tile(SETTINGS), items, which -> {
                 if ("Wallpaper".equals(items[which])) showWallpapers();
-                else if ("Brightness".equals(items[which])) openBrightness();
                 else if ("Show hidden inputs".equals(items[which])) showHiddenInputs();
                 else openTvSettings();
             });
@@ -961,16 +954,8 @@ public class MainActivity extends Activity {
         int state = networkState();
         if (state == netState) return;
         netState = state;
-        if (state == ETHERNET) {
-            netIcon.setImageDrawable(new LineIcon(LineIcon.ETHERNET));
-        } else {
-            // The whole Wi-Fi fan dim, with the bars it has bright on top. Offline is a slash instead.
-            LineIcon fan = new LineIcon(LineIcon.WIFI);
-            fan.setAlpha(0x47);
-            int[] top = state == OFFLINE ? LineIcon.SLASH : state == 1 ? LineIcon.WIFI_1
-                    : state == 2 ? LineIcon.WIFI_2 : LineIcon.WIFI;
-            netIcon.setImageDrawable(new LayerDrawable(new Drawable[] {fan, new LineIcon(top)}));
-        }
+        netIcon.setImageDrawable(mdi(state == ETHERNET ? "mdi_ethernet" : state == OFFLINE ? "mdi_wifi_strength_off_outline"
+                : state == 1 ? "mdi_wifi_strength_1" : state == 2 ? "mdi_wifi_strength_2" : "mdi_wifi_strength_4", null));
         ((View) netIcon.getParent()).setContentDescription(
                 state == OFFLINE ? Strings.t("Offline") : state == ETHERNET ? "Ethernet" : "Wi-Fi");
     }
@@ -1022,21 +1007,6 @@ public class MainActivity extends Activity {
             } catch (Exception ignored) {}
         }
         return false;
-    }
-
-    // The TV's own picture screen, where brightness lives: the Picture shortcut's screens first (TCL's
-    // panel, then Android's Display page), then Android TV's Display & Sound page, else TV settings.
-    // Only system screens are started, so it needs no permission and changes nothing by itself.
-    private void openBrightness() {
-        if (openQuick("picture")) return;
-        Intent i = new Intent().setClassName(TV_DISPLAY_SOUND[0], TV_DISPLAY_SOUND[1]);
-        if (i.resolveActivity(getPackageManager()) != null) {
-            try {
-                startActivity(i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
-                return;
-            } catch (Exception ignored) {}
-        }
-        openTvSettings();
     }
 
     private void openTvSettings() {
@@ -1236,9 +1206,14 @@ public class MainActivity extends Activity {
                 : n.contains("blu") || n.contains("dvd") ? "mdi_disc_player"
                 : n.contains("soundbar") || n.contains("audio") ? "mdi_soundbar"
                 : "mdi_video_input_hdmi";
-        int id = getResources().getIdentifier(icon, "drawable", getPackageName());
+        return mdi(icon, LineIcon.HDMI);
+    }
+
+    // A Material Design Icon from res/drawable by name; the line icon (or nothing) if it's missing.
+    private Drawable mdi(String name, int[] fallback) {
+        int id = getResources().getIdentifier(name, "drawable", getPackageName());
         try { return getResources().getDrawable(id, null); }
-        catch (Exception e) { return new LineIcon(LineIcon.HDMI); }
+        catch (Exception e) { return fallback != null ? new LineIcon(fallback) : null; }
     }
 
     // The TV's own name comes first, and picking it resets the custom one; the rest are the usual
@@ -1549,27 +1524,6 @@ public class MainActivity extends Activity {
         for (TvInputInfo in : tim.getTvInputList()) if (countsAsInput(in)) out.add(in);
         Collections.sort(out, (a, b) -> a.getId().compareTo(b.getId()));
         return out;
-    }
-
-    // A TV has inputs of its own (HDMI, AV); a box that plugs into one, like NVIDIA Shield, Chromecast
-    // or a Mi Box, has none. Some TVs register their HDMI inputs a while after starting (#52), so with
-    // none yet it's a box only if HDMI-CEC says it's a playback device and not a TV. When unsure, it's
-    // a TV, so TVs keep their menu.
-    static boolean isBox(Context c) {
-        TvInputManager tim = (TvInputManager) c.getSystemService(Context.TV_INPUT_SERVICE);
-        if (tim != null) for (TvInputInfo in : tim.getTvInputList()) if (in.isPassthroughInput()) return false;
-        List<String> types = cecTypes("ro.hdmi.device_type"), named = cecTypes("ro.hdmi.cec_device_types");
-        if (types.contains("0") || named.contains("tv")) return false;
-        return types.contains("4") || named.contains("playback_device");
-    }
-
-    private static List<String> cecTypes(String prop) {
-        try {
-            String v = String.valueOf(Class.forName("android.os.SystemProperties")
-                    .getMethod("get", String.class).invoke(null, prop)).trim();
-            if (!v.isEmpty()) return Arrays.asList(v.split("\\s*,\\s*"));
-        } catch (Throwable ignored) {}
-        return Collections.emptyList();
     }
 
     private TvInputInfo inputById(String id) {
