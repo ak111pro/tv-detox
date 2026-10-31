@@ -1,6 +1,8 @@
 > **ak111pro fork:** Apple-TV-style layout: your apps in rows of five with a glass frame that glides
-> to the row in focus, and a small glass pill at the top right with the clock, the HDMI inputs, the
-> network and Settings (Wallpaper and TV settings; no Brightness). Hold OK on any app for App info. `--es clocksize small|medium|large` sizes the
+> to the row in focus, and a glass pill centred at the top: one icon per HDMI input (with its port
+> number; hold OK to rename or hide it) on the left, the time and date in the middle, then the
+> actions, the network and Settings (Wallpaper, TV settings, hidden inputs; no Brightness).
+> `--es inputnames "HDMI 1=Nintendo Switch"` names an input by the TV's own label. Hold OK on any app for App info. `--es clocksize small|medium|large` sizes the
 > clock; the pill shows the time and the date (16:07 31.10.2026). Optional pill buttons
 > **Close all apps** and **Restart TV** POST to URLs you give it (for example Home Assistant webhooks
 > that run ADB commands, since an app can't do either itself):

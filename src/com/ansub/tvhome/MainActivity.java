@@ -91,7 +91,6 @@ public class MainActivity extends Activity {
     private static final String PLAY_STORE = "com.android.vending";
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
-    private static final String INPUTS = "inputs"; // the input icon in the top right pill
     // Optional actions in the pill, each a URL the home screen POSTs to (for example a Home Assistant
     // webhook that restarts the TV or closes every app over ADB, which an app can't do itself). Set
     // with --es actions "reboot=<url>,killapps=<url>" ("none" clears them); kept on the TV only.
@@ -119,7 +118,7 @@ public class MainActivity extends Activity {
     // Clock sizes, set with --es clocksize small|medium|large: the time's height in px at 1080p, in
     // the pill at the top right.
     private static final String[] CLOCK_SIZE_NAMES = {"small", "medium", "large"};
-    private static final int[] CLOCK_TIME_PX = {40, 48, 56};
+    private static final int[] CLOCK_TIME_PX = {44, 52, 60}; // small matches the pill's icons
     // The throwaway input install.sh adds with FAKE_INPUT=1. It has no HDMI port behind it; it is
     // there so an emulator, which has no inputs of its own, still has a tile to test with.
     private static final String FAKE_INPUT_PKG = "com.ansub.fakeinput";
@@ -134,7 +133,8 @@ public class MainActivity extends Activity {
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
     private static final Interpolator FOCUS_EASE = new DecelerateInterpolator(1.8f);
-    // Apple-TV-like page: a glass pill at the top right (clock, inputs, network, settings) and the
+    // Apple-TV-like page: a glass pill centred at the top (inputs | time and date | actions, network,
+    // settings) and the
     // apps in rows of PER_ROW. A glass frame sits around the row that has focus and glides along
     // when focus changes rows; rows are spaced so the frame fits around any of them.
     private static final int PILL_TOP = 56, PILL_H = 88, PILL_PAD = 28;
@@ -248,7 +248,7 @@ public class MainActivity extends Activity {
         pillClock.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(pillClock, at(0, px(PILL_TOP), -2, px(PILL_H)));
         // The date next to the time, as 31.10.2026: same size, a little dimmer.
-        pillDate = clock("dd.MM.yyyy", "dd.MM.yyyy", px(CLOCK_TIME_PX[clockSize()]), 0xB3FFFFFF, regular);
+        pillDate = clock("dd.MM.yyyy", "dd.MM.yyyy", px(CLOCK_TIME_PX[clockSize()]), 0xB3FFFFFF, semibold);
         pillDate.setFontFeatureSettings("tnum");
         pillDate.setIncludeFontPadding(false);
         pillDate.setGravity(Gravity.CENTER_VERTICAL);
@@ -290,7 +290,7 @@ public class MainActivity extends Activity {
         setIntent(intent);
         // A clock change needs the whole page rebuilt; a new app list only needs the tiles.
         boolean clock = intent != null && (intent.hasExtra("clock") || intent.hasExtra("clocksize")
-                || intent.hasExtra("actions"));
+                || intent.hasExtra("actions") || intent.hasExtra("inputnames"));
         if (saveConfig(intent)) {
             if (clock) recreate();
             else buildTiles();
@@ -309,8 +309,10 @@ public class MainActivity extends Activity {
         String fake = intent == null ? null : intent.getStringExtra("fakeinputs");
         String clockSize = intent == null ? null : intent.getStringExtra("clocksize");
         String actions = intent == null ? null : intent.getStringExtra("actions");
+        // --es inputnames "HDMI 1=Nintendo Switch,HDMI 3=PC": names inputs by the TV's own label.
+        String inputNamesExtra = intent == null ? null : intent.getStringExtra("inputnames");
         if (apps == null && quick == null && clock == null && fake == null && clockSize == null
-                && actions == null) return false;
+                && actions == null && inputNamesExtra == null) return false;
         SharedPreferences prefs = getSharedPreferences(PREFS, 0);
         String stamp = intent.getStringExtra("stamp");
         if (stamp != null && stamp.equals(prefs.getString("stamp", null))) return false;
@@ -335,6 +337,17 @@ public class MainActivity extends Activity {
             clockSize = clockSize.trim().toLowerCase(java.util.Locale.ROOT);
             if (Arrays.asList(CLOCK_SIZE_NAMES).contains(clockSize)) e.putString(PREF_CLOCK_SIZE, clockSize);
             else e.remove(PREF_CLOCK_SIZE);
+        }
+        if (inputNamesExtra != null) {
+            e.apply(); // setInputName edits the same prefs
+            e = prefs.edit();
+            for (String part : inputNamesExtra.split(",")) {
+                int eq = part.indexOf('=');
+                if (eq <= 0) continue;
+                String tvLabel = part.substring(0, eq).trim(), name = part.substring(eq + 1).trim();
+                for (TvInputInfo in : allInputs())
+                    if (tvInputLabel(in).equalsIgnoreCase(tvLabel)) setInputName(in.getId(), name);
+            }
         }
         if (actions != null) {
             actions = actions.trim();
@@ -591,48 +604,53 @@ public class MainActivity extends Activity {
         addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, gridX(next), gridY(next), w, h);
         root.setMinimumHeight(gridY(next) + h + px(MARGIN));
 
-        // The pill at the top right: the clock, then icons for the inputs, any settings shortcuts
-        // picked, the network and the home screen's settings. Added after the apps, so the first app
-        // keeps first focus; Up from the dock reaches them.
+        // The pill, centred at the top: one icon per HDMI input and any settings shortcuts on the
+        // left, the time and date in the middle, then the actions, the network and Settings. Added
+        // after the apps, so the first app keeps first focus; Up from the apps reaches them.
         List<Integer> quick = quickList();
         List<Integer> actions = new ArrayList<>();
         for (int a = 0; a < ACTION_NAMES.length; a++) if (actionUrl(ACTION_NAMES[a]) != null) actions.add(a);
-        boolean inputs = !allInputs().isEmpty();
-        int count = actions.size() + (inputs ? 1 : 0) + quick.size() + 2;
-        int ib = px(ICON_BUTTON), ig = px(ICON_GAP);
-        int right = screenW - m;
-        int qx = right - px(8) - count * ib - (count - 1) * ig;
+        List<TvInputInfo> inputs = hdmiInputs();
+        int left = inputs.size() + quick.size(), rightCount = actions.size() + 2;
+        int ib = px(ICON_BUTTON), ig = px(ICON_GAP), in8 = px(8), mid = px(24);
         int clockW = (int) Math.ceil(pillClock.getPaint().measureText("00:00"));
         int dateW = (int) Math.ceil(pillDate.getPaint().measureText("00.00.0000"));
-        int dateX = qx - px(20) - dateW;
-        int clockX = dateX - px(14) - clockW;
+        int leftW = left == 0 ? px(PILL_PAD) - mid : in8 + left * ib + (left - 1) * ig;
+        int rightW = in8 + rightCount * ib + (rightCount - 1) * ig;
+        int totalW = leftW + mid + clockW + px(18) + dateW + mid + rightW;
+        int pillX = (screenW - totalW) / 2;
+        FrameLayout.LayoutParams pp = (FrameLayout.LayoutParams) pillPanel.getLayoutParams();
+        pp.leftMargin = pillX;
+        pp.topMargin = px(PILL_TOP);
+        pp.width = totalW;
+        pp.height = px(PILL_H);
+        pillPanel.setLayoutParams(pp);
+        int qx = pillX + in8;
+        for (TvInputInfo in : inputs) {
+            final String id = in.getId();
+            addIcon(id, inputLabel(in), new LineIcon(inputGlyph(inputLabel(in)), portNumber(in)), qx,
+                    () -> showInputMenu(id));
+            qx += ib + ig;
+        }
+        for (int q : quick) {
+            addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), new LineIcon(QUICK_ICONS[q]), qx, null);
+            qx += ib + ig;
+        }
+        int clockX = pillX + leftW + mid;
         FrameLayout.LayoutParams cp = (FrameLayout.LayoutParams) pillClock.getLayoutParams();
         cp.leftMargin = clockX;
         pillClock.setLayoutParams(cp);
         FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) pillDate.getLayoutParams();
-        dlp.leftMargin = dateX;
+        dlp.leftMargin = clockX + clockW + px(18);
         pillDate.setLayoutParams(dlp);
-        FrameLayout.LayoutParams pp = (FrameLayout.LayoutParams) pillPanel.getLayoutParams();
-        pp.leftMargin = clockX - px(PILL_PAD);
-        pp.topMargin = px(PILL_TOP);
-        pp.width = right - pp.leftMargin;
-        pp.height = px(PILL_H);
-        pillPanel.setLayoutParams(pp);
+        qx = clockX + clockW + px(18) + dateW + mid;
         for (int a : actions) {
-            addIcon(ACTION + ACTION_NAMES[a], Strings.t(ACTION_LABELS[a]), new LineIcon(ACTION_ICONS[a]), qx);
+            addIcon(ACTION + ACTION_NAMES[a], Strings.t(ACTION_LABELS[a]), new LineIcon(ACTION_ICONS[a]), qx, null);
             qx += ib + ig;
         }
-        if (inputs) {
-            addIcon(INPUTS, Strings.t("Inputs"), new LineIcon(LineIcon.HDMI), qx);
-            qx += ib + ig;
-        }
-        for (int q : quick) {
-            addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), new LineIcon(QUICK_ICONS[q]), qx);
-            qx += ib + ig;
-        }
-        netIcon = addIcon(NETWORK, Strings.t("Network"), null, qx);
+        netIcon = addIcon(NETWORK, Strings.t("Network"), null, qx, null);
         qx += ib + ig;
-        addIcon(SETTINGS, Strings.t("Settings"), new LineIcon(LineIcon.SETTINGS), qx);
+        addIcon(SETTINGS, Strings.t("Settings"), new LineIcon(LineIcon.SETTINGS), qx, null);
         netState = -1;
         refreshNetwork();
 
@@ -791,7 +809,7 @@ public class MainActivity extends Activity {
     }
 
     // An icon on its own, no tile or label: a glass circle shows behind it only while it's focused.
-    private ImageView addIcon(final String key, String label, Drawable icon, int x) {
+    private ImageView addIcon(final String key, String label, Drawable icon, int x, final Runnable menu) {
         int b = px(ICON_BUTTON), size = px(ICON_SIZE);
         FrameLayout card = new FrameLayout(this);
         final GradientDrawable bg = new GradientDrawable();
@@ -809,6 +827,15 @@ public class MainActivity extends Activity {
             lift(v, bg, has, Color.TRANSPARENT, 0x38FFFFFF, 0, 0);
         });
         card.setOnClickListener(v -> open(key));
+        if (menu != null) {
+            // Hold OK or press Menu: the input's own menu (rename, take off the home screen).
+            card.setOnLongClickListener(v -> { menu.run(); return true; });
+            card.setOnKeyListener((v, code, ev) -> {
+                if (code != KeyEvent.KEYCODE_MENU) return false;
+                if (ev.getAction() == KeyEvent.ACTION_UP) menu.run();
+                return true;
+            });
+        }
         FrameLayout wrap = new FrameLayout(this);
         wrap.setClipChildren(false);
         wrap.addView(card, new FrameLayout.LayoutParams(b, b));
@@ -827,15 +854,14 @@ public class MainActivity extends Activity {
             // Shield, Brightness also fell back to a Display & Sound page that's listed but missing there.
             List<String> list = new ArrayList<>(Arrays.asList(SETTINGS_ITEMS));
             if (isBox(this)) list.remove("Brightness");
+            if (!hiddenInputs().isEmpty()) list.add("Show hidden inputs");
             final String[] items = list.toArray(new String[0]);
             dropdown(tile(SETTINGS), items, which -> {
                 if ("Wallpaper".equals(items[which])) showWallpapers();
                 else if ("Brightness".equals(items[which])) openBrightness();
+                else if ("Show hidden inputs".equals(items[which])) showHiddenInputs();
                 else openTvSettings();
             });
-            return;
-        } else if (INPUTS.equals(key)) {
-            showInputs();
             return;
         } else if (key.startsWith(ACTION)) {
             final String name = key.substring(ACTION.length());
@@ -1193,7 +1219,6 @@ public class MainActivity extends Activity {
     // screen. Hiding keeps the input in the TV's list, so nothing about the TV changes.
     private void showInputMenu(final String id) {
         View anchor = tile(id);
-        if (anchor == null) anchor = tile(INPUTS);
         if (anchor == null) return;
         dropdown(anchor, new String[] {"Rename", "Remove from home"}, which -> {
             if (which == 0) showInputNames(id);
@@ -1201,33 +1226,22 @@ public class MainActivity extends Activity {
         });
     }
 
-    // The input icon in the pill: the HDMI inputs to switch to, then renaming, hiding and showing
-    // hidden ones again (what holding OK on an input tile did before inputs moved into the pill).
-    private void showInputs() {
-        final List<TvInputInfo> inputs = hdmiInputs();
-        List<String> labels = new ArrayList<>();
-        for (TvInputInfo in : inputs) labels.add(inputLabel(in));
-        final int manage = labels.size();
-        if (!inputs.isEmpty()) {
-            labels.add(Strings.t("Rename"));
-            labels.add(Strings.t("Remove from home"));
-        }
-        final boolean anyHidden = !hiddenInputs().isEmpty();
-        if (anyHidden) labels.add(Strings.t("Show hidden inputs"));
-        if (labels.isEmpty()) return;
-        panel(Strings.t("Inputs"), labels, which -> {
-            if (which < manage) openInput(inputs.get(which).getId());
-            else if (which == labels.size() - 1 && anyHidden) showHiddenInputs();
-            else {
-                final boolean rename = which == manage;
-                List<String> names = new ArrayList<>();
-                for (TvInputInfo in : inputs) names.add(inputLabel(in));
-                panel(Strings.t(rename ? "Rename" : "Remove from home"), names, pick -> {
-                    if (rename) showInputNames(inputs.get(pick).getId());
-                    else hideInput(inputs.get(pick).getId());
-                });
-            }
-        });
+    // The glyph for an input, from its name: a gamepad for consoles, a disc for players, a screen
+    // for computers, a speaker for a soundbar, else the plain HDMI plug.
+    private static int[] inputGlyph(String name) {
+        String n = name.toLowerCase(java.util.Locale.ROOT);
+        if (n.contains("switch") || n.contains("nintendo") || n.contains("playstation") || n.contains("xbox")
+                || n.contains("console")) return LineIcon.GAMEPAD;
+        if (n.contains("blu") || n.contains("dvd")) return LineIcon.DISC;
+        if (n.contains("pc") || n.contains("laptop") || n.contains("computer") || n.contains("mac")) return LineIcon.MONITOR;
+        if (n.contains("soundbar") || n.contains("audio")) return LineIcon.SOUND;
+        return LineIcon.HDMI;
+    }
+
+    // The port number from the TV's own label ("HDMI 2" gives "2"), or null.
+    private String portNumber(TvInputInfo in) {
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\s*$").matcher(tvInputLabel(in));
+        return m.find() ? m.group(1) : null;
     }
 
     // The TV's own name comes first, and picking it resets the custom one; the rest are the usual

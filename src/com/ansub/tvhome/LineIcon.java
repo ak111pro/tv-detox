@@ -18,6 +18,11 @@ final class LineIcon extends Drawable {
     static final int[] SETTINGS = {0, 40, 70, 1, 140, 70, 0, 180, 70, 1, 200, 70, 0, 40, 170, 1, 60, 170,
             0, 100, 170, 1, 200, 170, 3, 160, 70, 20, 3, 80, 170, 20};
     static final int[] PLUS = {0, 120, 50, 1, 120, 190, 0, 50, 120, 1, 190, 120};
+    static final int[] GAMEPAD = {0, 55, 75, 1, 185, 75, 1, 215, 170, 1, 175, 175, 1, 155, 145, 1, 85, 145,
+            1, 65, 175, 1, 25, 170, 2, 0, 80, 95, 1, 80, 125, 0, 65, 110, 1, 95, 110, 3, 160, 102, 6, 3, 178, 120, 6};
+    static final int[] MONITOR = {0, 30, 50, 1, 210, 50, 1, 210, 160, 1, 30, 160, 2, 0, 90, 195, 1, 150, 195,
+            0, 120, 160, 1, 120, 195};
+    static final int[] DISC = {3, 120, 120, 85, 3, 120, 120, 22};
     static final int[] POWER = {4, 120, 130, 72, -55, 290, 0, 120, 40, 1, 120, 120};
     static final int[] CLOSE_ALL = {0, 40, 55, 1, 200, 55, 1, 200, 185, 1, 40, 185, 2,
             0, 90, 90, 1, 150, 150, 0, 150, 90, 1, 90, 150};
@@ -38,9 +43,19 @@ final class LineIcon extends Drawable {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
     private final RectF arc = new RectF();
+    private final String badge; // a small number at the bottom right, like an input's port
+    private final Paint badgePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     LineIcon(int[] ops) {
+        this(ops, null);
+    }
+
+    LineIcon(int[] ops, String badge) {
         this.ops = ops;
+        this.badge = badge;
+        badgePaint.setColor(0xEBFFFFFF);
+        badgePaint.setFakeBoldText(true);
+        badgePaint.setTextAlign(Paint.Align.RIGHT);
         paint.setStyle(Paint.Style.STROKE);
         paint.setStrokeCap(Paint.Cap.ROUND);
         paint.setStrokeJoin(Paint.Join.ROUND);
@@ -69,10 +84,15 @@ final class LineIcon extends Drawable {
         c.save();
         c.translate(getBounds().left, getBounds().top);
         c.drawPath(path, paint);
+        if (badge != null) {
+            badgePaint.setTextSize(getBounds().height() * 0.46f);
+            badgePaint.setAlpha(paint.getAlpha());
+            c.drawText(badge, getBounds().width(), getBounds().height() * 0.98f, badgePaint);
+        }
         c.restore();
     }
 
-    @Override public void setAlpha(int a) { paint.setAlpha(a); }
+    @Override public void setAlpha(int a) { paint.setAlpha(a); badgePaint.setAlpha(a); }
     @Override public void setColorFilter(ColorFilter cf) { paint.setColorFilter(cf); }
     @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
     @Override public int getIntrinsicWidth() { return 44; }
