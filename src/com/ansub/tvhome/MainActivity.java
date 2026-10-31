@@ -1238,9 +1238,11 @@ public class MainActivity extends Activity {
         return LineIcon.HDMI;
     }
 
-    // The port number from the TV's own label ("HDMI 2" gives "2"), or null.
+    // The port number when the TV's own label is just "HDMI 2", else null: a label the TV took from
+    // the device over CEC ("PlayStation 4", "Xbox 360") has a number that isn't the port.
     private String portNumber(TvInputInfo in) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("(\\d+)\\s*$").matcher(tvInputLabel(in));
+        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\s*HDMI\\s*(\\d+)\\s*$",
+                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(tvInputLabel(in));
         return m.find() ? m.group(1) : null;
     }
 
