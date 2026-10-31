@@ -1,3 +1,8 @@
+> **ak111pro fork:** Apple-TV-style layout: a glass dock with your first five apps, the other apps in
+> rows of five below it, and a small glass pill at the top right with the clock, the HDMI inputs, the
+> network and Settings. Hold OK on any app for App info. `--es clocksize small|medium|large` sizes the
+> clock. Default wallpaper "Abyss" (deep blue). Everything else works as upstream.
+
 <div align="center">
 
 # TV Detox

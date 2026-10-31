@@ -91,9 +91,10 @@ public class MainActivity extends Activity {
     private static final String PLAY_STORE = "com.android.vending";
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
+    private static final String INPUTS = "inputs"; // the input icon in the top right pill
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "App info", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
-    private static final int PER_ROW = 6, MAX_INPUTS = 4;
+    private static final int PER_ROW = 5, MAX_INPUTS = 4;
 
     // Settings shortcuts: name, label, icon. Tile keys are QUICK + name.
     private static final String QUICK = "quick:";
@@ -108,10 +109,10 @@ public class MainActivity extends Activity {
     private static final String PREF_INPUT_NAMES = "inputnames", PREF_HIDDEN_INPUTS = "hiddeninputs";
     private static final String PREF_CLOCK = "clock", PREF_FAKE_INPUTS = "fakeinputs";
     private static final String PREF_CLOCK_SIZE = "clocksize";
-    // Clock sizes, set with --es clocksize small|medium|large: time and date height in px at 1080p.
-    // Small is the default: the big time made the screen feel like a clock with apps under it.
+    // Clock sizes, set with --es clocksize small|medium|large: the time's height in px at 1080p, in
+    // the pill at the top right.
     private static final String[] CLOCK_SIZE_NAMES = {"small", "medium", "large"};
-    private static final int[] CLOCK_TIME_PX = {104, 136, 176}, CLOCK_DATE_PX = {26, 28, 30};
+    private static final int[] CLOCK_TIME_PX = {40, 48, 56};
     // The throwaway input install.sh adds with FAKE_INPUT=1. It has no HDMI port behind it; it is
     // there so an emulator, which has no inputs of its own, still has a tile to test with.
     private static final String FAKE_INPUT_PKG = "com.ansub.fakeinput";
@@ -126,9 +127,11 @@ public class MainActivity extends Activity {
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
     private static final Interpolator FOCUS_EASE = new DecelerateInterpolator(1.8f);
-    private static final int ROW1_TOP = 604, ROW_STEP = 224;
-    private static final int GRID_MIN_TOP = 400; // more rows push the grid up, but not into the clock
-    private static final int ICON_TOP = 76, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 12; // level with the date
+    // Apple-TV-like page: a glass pill at the top right (clock, inputs, network, settings), a glass
+    // dock holding the first PER_ROW apps, and the other apps in rows of PER_ROW below it.
+    private static final int PILL_TOP = 56, PILL_H = 88, PILL_PAD = 28;
+    private static final int DOCK_TOP = 184, DOCK_PAD = 30, DOCK_RADIUS = 44, DOCK_GAP_BELOW = 56, ROW_GAP = 48;
+    private static final int ICON_TOP = PILL_TOP + (PILL_H - 72) / 2, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 8;
 
     // The Settings tile opens a small menu: the home screen's own settings, then the TV's.
     private static final String[] SETTINGS_ITEMS = {"Wallpaper", "Brightness", "TV settings"};
@@ -140,7 +143,8 @@ public class MainActivity extends Activity {
     // white labels stay easy to read. Only colours, no images, so every one costs the same as Dusk,
     // the default.
     private static final String[] WALLPAPER_NAMES = {"Dusk", "Midnight", "Plum", "Forest", "Graphite", "Ocean", "Ember",
-            "Sunset", "Lagoon", "Aurora", "Coral", "Iris", "Meadow", "Gold"};
+            "Sunset", "Lagoon", "Aurora", "Coral", "Iris", "Meadow", "Gold", "Abyss"};
+    private static final String DEFAULT_WALLPAPER = "Abyss"; // deep blue with a teal glow
     private static final int[][] WALLPAPERS = {
         {0xFF15100F, 0xFF0A0809, 0xFF050405, 0x36FF8048, 0x2EAA3C8C},
         {0xFF0E1220, 0xFF080A13, 0xFF040509, 0x384A6CFF, 0x2E5A3CC8},
@@ -156,13 +160,16 @@ public class MainActivity extends Activity {
         {0xFF5A3CAE, 0xFF3A2A84, 0xFF16123A, 0x90C080FF, 0x804A7CFF},
         {0xFF2E6E4C, 0xFF1C4A40, 0xFF0A201E, 0x90A8E070, 0x6030A8A8},
         {0xFFB07624, 0xFF86401E, 0xFF2A1410, 0x90FFD060, 0x70FF5040},
+        {0xFF0C2234, 0xFF081626, 0xFF040A14, 0x5A1EA0C8, 0x46245AC8},
     };
     private float scale = 1f;
 
     private static Typeface regular, semibold;
 
     private FrameLayout root; // the page, inside a vertical scroller
-    private int tileW, tileH, gridTop; // app grid geometry, set by buildTiles
+    private int tileW, tileH, gridTop, rowStep; // app grid geometry, set by buildTiles
+    private View dockPanel, pillPanel; // the glass behind the dock and behind the top right icons
+    private TextClock pillClock;
     private final List<View> tiles = new ArrayList<>();
     private final Map<View, ValueAnimator> lifts = new WeakHashMap<>(); // a running focus fade per tile
     private boolean dirty = true;
@@ -216,31 +223,25 @@ public class MainActivity extends Activity {
         root.setClipChildren(false);
         scroller.addView(root, new FrameLayout.LayoutParams(-1, -2));
 
-        LinearLayout clock = new LinearLayout(this);
-        clock.setOrientation(LinearLayout.VERTICAL);
         shownLocale = java.util.Locale.getDefault();
-        String day = Strings.datePattern();
-        int size = clockSize();
-        TextClock date = clock(day, day, px(CLOCK_DATE_PX[size]), 0xA8FFFFFF, regular);
+        // The glass panels go in first, so the tiles and icons draw on top of them. buildTiles sizes them.
+        dockPanel = glass(px(DOCK_RADIUS), 0x12FFFFFF, 0x1FFFFFFF);
+        root.addView(dockPanel, at(0, 0, 0, 0));
+        pillPanel = glass(px(PILL_H / 2), 0x1AFFFFFF, 0x24FFFFFF);
+        root.addView(pillPanel, at(0, 0, 0, 0));
         // The clock follows the TV unless --es clock 12 or 24 says otherwise.
         String clockPref = prefs().getString(PREF_CLOCK, null);
-        TextClock time = clock("24".equals(clockPref) ? "H:mm" : "h:mm", "12".equals(clockPref) ? "h:mm" : "H:mm",
-                px(CLOCK_TIME_PX[size]), Color.WHITE, semibold);
-        time.setLetterSpacing(-0.028f);
-        time.setFontFeatureSettings("tnum");
-        time.setIncludeFontPadding(false);
-        // Wrap, not the default match_parent: the column must be as wide as the date, not just the time,
-        // or "0:00" to "9:59" (one digit less) cuts a long date off.
-        clock.addView(date, new LinearLayout.LayoutParams(-2, -2));
-        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
-        tp.topMargin = px(-20 * CLOCK_TIME_PX[size] / 176); // pull the digits up under the date
-        clock.addView(time, tp);
-        root.addView(clock, at(px(MARGIN), px(92), -2, -2));
+        pillClock = clock("24".equals(clockPref) ? "H:mm" : "h:mm", "12".equals(clockPref) ? "h:mm" : "H:mm",
+                px(CLOCK_TIME_PX[clockSize()]), Color.WHITE, semibold);
+        pillClock.setFontFeatureSettings("tnum");
+        pillClock.setIncludeFontPadding(false);
+        pillClock.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(pillClock, at(0, px(PILL_TOP), -2, px(PILL_H)));
 
         moveHint = text(px(24), 0xA8FFFFFF, regular);
         moveHint.setText(Strings.t("Use the arrows to move it, then press OK"));
         moveHint.setVisibility(View.GONE);
-        root.addView(moveHint, at(px(MARGIN), px(ROW1_TOP - 64), -2, -2));
+        root.addView(moveHint, at(px(MARGIN), px(PILL_TOP + 28), -2, -2));
 
         setContentView(scroller);
 
@@ -462,10 +463,11 @@ public class MainActivity extends Activity {
         }
     }
 
-    // The saved wallpaper, as an index into WALLPAPERS (Dusk if none is saved).
+    // The saved wallpaper, as an index into WALLPAPERS (DEFAULT_WALLPAPER if none is saved).
     private int wallpaper() {
-        String saved = getSharedPreferences(PREFS, 0).getString("wallpaper", null);
-        return Math.max(0, Arrays.asList(WALLPAPER_NAMES).indexOf(saved));
+        String saved = getSharedPreferences(PREFS, 0).getString("wallpaper", DEFAULT_WALLPAPER);
+        int i = Arrays.asList(WALLPAPER_NAMES).indexOf(saved);
+        return i >= 0 ? i : Arrays.asList(WALLPAPER_NAMES).indexOf(DEFAULT_WALLPAPER);
     }
 
     private void showWallpaper(int i) {
@@ -524,22 +526,22 @@ public class MainActivity extends Activity {
         moveHint.setVisibility(View.GONE);
 
         PackageManager pm = getPackageManager();
-        int m = px(MARGIN), g = px(GAP);
-        int w = (getResources().getDisplayMetrics().widthPixels - 2 * m - g * (PER_ROW - 1)) / PER_ROW;
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int m = px(MARGIN), g = px(GAP), pad = px(DOCK_PAD);
+        int w = (screenW - 2 * m - 2 * pad - g * (PER_ROW - 1)) / PER_ROW;
         int h = w * 9 / 16;
         tileW = w;
         tileH = h;
+        rowStep = h + px(ROW_GAP);
+        gridTop = px(DOCK_TOP) + h + 2 * pad + px(DOCK_GAP_BELOW);
+        FrameLayout.LayoutParams dp = (FrameLayout.LayoutParams) dockPanel.getLayoutParams();
+        dp.leftMargin = m;
+        dp.topMargin = px(DOCK_TOP);
+        dp.width = screenW - 2 * m;
+        dp.height = h + 2 * pad;
+        dockPanel.setLayoutParams(dp);
 
         List<String> apps = appList(pm);
-        // Apps fill rows of six. With more rows the grid starts higher, so up to two rows of apps and
-        // the bottom row still fit on screen; past that the page scrolls.
-        int launchable = 0;
-        for (String pkg : apps) if (launchIntent(pm, pkg) != null) launchable++;
-        int rows = Math.max(1, (launchable + PER_ROW - 1) / PER_ROW);
-        gridTop = Math.max(px(GRID_MIN_TOP), px(ROW1_TOP) - (rows - 1) * px(ROW_STEP));
-        int bottomTop = gridTop + rows * px(ROW_STEP);
-        ((FrameLayout.LayoutParams) moveHint.getLayoutParams()).topMargin = gridTop - px(64);
-        root.setMinimumHeight(bottomTop + h + px(MARGIN));
 
         for (String pkg : apps) {
             Intent li = launchIntent(pm, pkg);
@@ -559,31 +561,44 @@ public class MainActivity extends Activity {
             addTile(root, pkg, label, banner, null, icon, gridX(i), gridY(i), w, h);
         }
 
-        // Bottom row: Play Store, HDMI inputs, Settings and Add app, six at most.
-        int col = 0;
-        boolean store = !apps.contains(PLAY_STORE) && launchIntent(pm, PLAY_STORE) != null;
-        List<TvInputInfo> inputs = hdmiInputs();
-        int room = PER_ROW - 2 - (store ? 1 : 0);
-        if (inputs.size() > room) inputs = inputs.subList(0, room);
-        if (store)
-            addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, m + col++ * (w + g), bottomTop, w, h);
-        for (TvInputInfo in : inputs)
-            addTile(root, in.getId(), inputLabel(in), null, LineIcon.HDMI, null, m + col++ * (w + g), bottomTop, w, h);
-        addTile(root, SETTINGS, Strings.t("Settings"), null, LineIcon.SETTINGS, null, m + col++ * (w + g), bottomTop, w, h);
-        addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, m + col * (w + g), bottomTop, w, h);
+        // After the apps, in the same flow: the Play Store (if it isn't one of them) and Add app.
+        int next = rowApps.size();
+        if (!apps.contains(PLAY_STORE) && launchIntent(pm, PLAY_STORE) != null)
+            addTile(root, PLAY_STORE, "Play Store", null, LineIcon.PLAY, null, gridX(next), gridY(next++), w, h);
+        addTile(root, ADD, Strings.t("Add app"), null, LineIcon.PLUS, null, gridX(next), gridY(next), w, h);
+        root.setMinimumHeight(gridY(next) + h + px(MARGIN));
 
-        // Plain icons at the top right, level with the date: any settings shortcuts picked, then the
-        // network icon. Added last, so the first app keeps first focus; Up from the apps reaches them.
+        // The pill at the top right: the clock, then icons for the inputs, any settings shortcuts
+        // picked, the network and the home screen's settings. Added after the apps, so the first app
+        // keeps first focus; Up from the dock reaches them.
         List<Integer> quick = quickList();
+        boolean inputs = !allInputs().isEmpty();
+        int count = (inputs ? 1 : 0) + quick.size() + 2;
         int ib = px(ICON_BUTTON), ig = px(ICON_GAP);
-        // The last icon's right edge lines up with the apps' (its focus circle sticks out past them).
-        int qx = getResources().getDisplayMetrics().widthPixels - m + (ib - px(ICON_SIZE)) / 2
-                - (quick.size() + 1) * ib - quick.size() * ig;
+        int right = screenW - m;
+        int qx = right - px(8) - count * ib - (count - 1) * ig;
+        int clockW = (int) Math.ceil(pillClock.getPaint().measureText("00:00"));
+        int clockX = qx - px(20) - clockW;
+        FrameLayout.LayoutParams cp = (FrameLayout.LayoutParams) pillClock.getLayoutParams();
+        cp.leftMargin = clockX;
+        pillClock.setLayoutParams(cp);
+        FrameLayout.LayoutParams pp = (FrameLayout.LayoutParams) pillPanel.getLayoutParams();
+        pp.leftMargin = clockX - px(PILL_PAD);
+        pp.topMargin = px(PILL_TOP);
+        pp.width = right - pp.leftMargin;
+        pp.height = px(PILL_H);
+        pillPanel.setLayoutParams(pp);
+        if (inputs) {
+            addIcon(INPUTS, Strings.t("Inputs"), new LineIcon(LineIcon.HDMI), qx);
+            qx += ib + ig;
+        }
         for (int q : quick) {
             addIcon(QUICK + QUICK_NAMES[q], Strings.t(QUICK_LABELS[q]), new LineIcon(QUICK_ICONS[q]), qx);
             qx += ib + ig;
         }
         netIcon = addIcon(NETWORK, Strings.t("Network"), null, qx);
+        qx += ib + ig;
+        addIcon(SETTINGS, Strings.t("Settings"), new LineIcon(LineIcon.SETTINGS), qx);
         netState = -1;
         refreshNetwork();
 
@@ -634,30 +649,18 @@ public class MainActivity extends Activity {
         card.setFocusable(true);
         card.setTag(key);
 
-        // Banner tiles show their name underneath when focused.
-        final TextView caption = banner == null ? null : text(px(24), Color.WHITE, regular);
-        if (caption != null) {
-            caption.setText(label);
-            caption.setGravity(Gravity.CENTER_HORIZONTAL);
-            caption.setVisibility(View.INVISIBLE);
-        }
+        // The banners carry the app's name already, so the focused tile gets a light ring, not a caption.
+        card.setContentDescription(label);
+        final GradientDrawable ring = new GradientDrawable();
+        ring.setCornerRadius(px(RADIUS + RADIUS_UP));
+        ring.setStroke(px(3), 0xE6FFFFFF);
 
         final boolean glass = banner == null;
         card.setOnFocusChangeListener((v, has) -> {
             if (has) focusedKey = key;
             lift(v, bg, has, glass ? 0x13FFFFFF : 0xFF1E1A1C, glass ? 0x38FFFFFF : 0xFF1E1A1C,
                     px(RADIUS), px(RADIUS + RADIUS_UP));
-            if (caption != null) {
-                caption.animate().cancel();
-                if (has) {
-                    caption.setVisibility(View.VISIBLE);
-                    caption.setAlpha(0f);
-                    caption.animate().alpha(1f).setDuration(FOCUS_MS).setInterpolator(FOCUS_EASE).start();
-                } else {
-                    caption.animate().alpha(0f).setDuration(FOCUS_MS / 2).withEndAction(
-                            () -> caption.setVisibility(View.INVISIBLE)).start();
-                }
-            }
+            if (!key.equals(movingKey)) ((FrameLayout) v).setForeground(has ? ring : null);
         });
         final boolean editable = rowApps.contains(key);
         card.setOnClickListener(v -> open(key));
@@ -699,11 +702,6 @@ public class MainActivity extends Activity {
         FrameLayout wrap = new FrameLayout(this);
         wrap.setClipChildren(false);
         wrap.addView(card, new FrameLayout.LayoutParams(w, h));
-        if (caption != null) {
-            FrameLayout.LayoutParams cp = new FrameLayout.LayoutParams(w, -2);
-            cp.topMargin = h + px(22);
-            wrap.addView(caption, cp);
-        }
         parent.addView(wrap, at(x, y, w, -2));
         tiles.add(card);
     }
@@ -798,6 +796,9 @@ public class MainActivity extends Activity {
                 else if ("Brightness".equals(items[which])) openBrightness();
                 else openTvSettings();
             });
+            return;
+        } else if (INPUTS.equals(key)) {
+            showInputs();
             return;
         } else if (isInput(key)) {
             openInput(key);
@@ -1149,10 +1150,40 @@ public class MainActivity extends Activity {
     // screen. Hiding keeps the input in the TV's list, so nothing about the TV changes.
     private void showInputMenu(final String id) {
         View anchor = tile(id);
+        if (anchor == null) anchor = tile(INPUTS);
         if (anchor == null) return;
         dropdown(anchor, new String[] {"Rename", "Remove from home"}, which -> {
             if (which == 0) showInputNames(id);
             else hideInput(id);
+        });
+    }
+
+    // The input icon in the pill: the HDMI inputs to switch to, then renaming, hiding and showing
+    // hidden ones again (what holding OK on an input tile did before inputs moved into the pill).
+    private void showInputs() {
+        final List<TvInputInfo> inputs = hdmiInputs();
+        List<String> labels = new ArrayList<>();
+        for (TvInputInfo in : inputs) labels.add(inputLabel(in));
+        final int manage = labels.size();
+        if (!inputs.isEmpty()) {
+            labels.add(Strings.t("Rename"));
+            labels.add(Strings.t("Remove from home"));
+        }
+        final boolean anyHidden = !hiddenInputs().isEmpty();
+        if (anyHidden) labels.add(Strings.t("Show hidden inputs"));
+        if (labels.isEmpty()) return;
+        panel(Strings.t("Inputs"), labels, which -> {
+            if (which < manage) openInput(inputs.get(which).getId());
+            else if (which == labels.size() - 1 && anyHidden) showHiddenInputs();
+            else {
+                final boolean rename = which == manage;
+                List<String> names = new ArrayList<>();
+                for (TvInputInfo in : inputs) names.add(inputLabel(in));
+                panel(Strings.t(rename ? "Rename" : "Remove from home"), names, pick -> {
+                    if (rename) showInputNames(inputs.get(pick).getId());
+                    else hideInput(inputs.get(pick).getId());
+                });
+            }
         });
     }
 
@@ -1350,13 +1381,26 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, 0).edit().putString("apps", android.text.TextUtils.join(",", rowApps)).apply();
     }
 
-    // Where app number i sits in the grid.
+    // Where tile number i sits: the first PER_ROW in the dock, the rest in rows below it.
     private int gridX(int i) {
-        return px(MARGIN) + (i % PER_ROW) * (tileW + px(GAP));
+        return px(MARGIN) + px(DOCK_PAD) + (i % PER_ROW) * (tileW + px(GAP));
     }
 
     private int gridY(int i) {
-        return gridTop + (i / PER_ROW) * px(ROW_STEP);
+        if (i < PER_ROW) return px(DOCK_TOP) + px(DOCK_PAD);
+        return gridTop + (i - PER_ROW) / PER_ROW * rowStep;
+    }
+
+    // A quiet glass panel: translucent fill with a faint edge, no blur, so it costs nothing per frame.
+    private View glass(int radius, int fill, int edge) {
+        View v = new View(this);
+        GradientDrawable d = new GradientDrawable();
+        d.setCornerRadius(radius);
+        d.setColor(fill);
+        d.setStroke(Math.max(1, px(2)), edge);
+        v.setBackground(d);
+        v.setFocusable(false);
+        return v;
     }
 
     private View tile(String key) {
