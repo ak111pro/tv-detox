@@ -91,7 +91,7 @@ public class MainActivity extends Activity {
     private static final String PLAY_STORE = "com.android.vending";
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
-    private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "Uninstall"};
+    private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "App info", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
     private static final int PER_ROW = 6, MAX_INPUTS = 4;
 
@@ -104,9 +104,14 @@ public class MainActivity extends Activity {
     private static final int OFFLINE = 0, ETHERNET = 4; // network states; 1 to 3 are Wi-Fi bars
 
     // Saved on the TV: custom input names ("id=name" per line), hidden inputs (one id per line),
-    // and the clock override ("12" or "24"; absent follows the TV).
+    // the clock override ("12" or "24"; absent follows the TV) and the clock size.
     private static final String PREF_INPUT_NAMES = "inputnames", PREF_HIDDEN_INPUTS = "hiddeninputs";
     private static final String PREF_CLOCK = "clock", PREF_FAKE_INPUTS = "fakeinputs";
+    private static final String PREF_CLOCK_SIZE = "clocksize";
+    // Clock sizes, set with --es clocksize small|medium|large: time and date height in px at 1080p.
+    // Small is the default: the big time made the screen feel like a clock with apps under it.
+    private static final String[] CLOCK_SIZE_NAMES = {"small", "medium", "large"};
+    private static final int[] CLOCK_TIME_PX = {104, 136, 176}, CLOCK_DATE_PX = {26, 28, 30};
     // The throwaway input install.sh adds with FAKE_INPUT=1. It has no HDMI port behind it; it is
     // there so an emulator, which has no inputs of its own, still has a tile to test with.
     private static final String FAKE_INPUT_PKG = "com.ansub.fakeinput";
@@ -215,11 +220,12 @@ public class MainActivity extends Activity {
         clock.setOrientation(LinearLayout.VERTICAL);
         shownLocale = java.util.Locale.getDefault();
         String day = Strings.datePattern();
-        TextClock date = clock(day, day, px(30), 0xA8FFFFFF, regular);
+        int size = clockSize();
+        TextClock date = clock(day, day, px(CLOCK_DATE_PX[size]), 0xA8FFFFFF, regular);
         // The clock follows the TV unless --es clock 12 or 24 says otherwise.
         String clockPref = prefs().getString(PREF_CLOCK, null);
         TextClock time = clock("24".equals(clockPref) ? "H:mm" : "h:mm", "12".equals(clockPref) ? "h:mm" : "H:mm",
-                px(176), Color.WHITE, semibold);
+                px(CLOCK_TIME_PX[size]), Color.WHITE, semibold);
         time.setLetterSpacing(-0.028f);
         time.setFontFeatureSettings("tnum");
         time.setIncludeFontPadding(false);
@@ -227,7 +233,7 @@ public class MainActivity extends Activity {
         // or "0:00" to "9:59" (one digit less) cuts a long date off.
         clock.addView(date, new LinearLayout.LayoutParams(-2, -2));
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2);
-        tp.topMargin = px(-20); // pull the big digits up under the date
+        tp.topMargin = px(-20 * CLOCK_TIME_PX[size] / 176); // pull the digits up under the date
         clock.addView(time, tp);
         root.addView(clock, at(px(MARGIN), px(92), -2, -2));
 
@@ -266,15 +272,16 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         // A clock change needs the whole page rebuilt; a new app list only needs the tiles.
-        boolean clock = intent != null && intent.hasExtra("clock");
+        boolean clock = intent != null && (intent.hasExtra("clock") || intent.hasExtra("clocksize"));
         if (saveConfig(intent)) {
             if (clock) recreate();
             else buildTiles();
         }
     }
 
-    // Saves an app list passed with --es apps "...", shortcuts passed with --es quick "...", and a
-    // clock override passed with --es clock 12|24|auto. Returns true if it changed.
+    // Saves an app list passed with --es apps "...", shortcuts passed with --es quick "...", a
+    // clock override passed with --es clock 12|24|auto and a clock size passed with
+    // --es clocksize small|medium|large. Returns true if it changed.
     // When Android kills the home screen in the background, it can start it again with the same old
     // intent; the stamp install.sh sends stops that from undoing changes made on the TV since.
     private boolean saveConfig(Intent intent) {
@@ -282,7 +289,8 @@ public class MainActivity extends Activity {
         String quick = intent == null ? null : intent.getStringExtra("quick");
         String clock = intent == null ? null : intent.getStringExtra("clock");
         String fake = intent == null ? null : intent.getStringExtra("fakeinputs");
-        if (apps == null && quick == null && clock == null && fake == null) return false;
+        String clockSize = intent == null ? null : intent.getStringExtra("clocksize");
+        if (apps == null && quick == null && clock == null && fake == null && clockSize == null) return false;
         SharedPreferences prefs = getSharedPreferences(PREFS, 0);
         String stamp = intent.getStringExtra("stamp");
         if (stamp != null && stamp.equals(prefs.getString("stamp", null))) return false;
@@ -302,6 +310,11 @@ public class MainActivity extends Activity {
             clock = clock.trim();
             if (clock.isEmpty() || clock.equalsIgnoreCase("auto")) e.remove(PREF_CLOCK);
             else e.putString(PREF_CLOCK, clock);
+        }
+        if (clockSize != null) {
+            clockSize = clockSize.trim().toLowerCase(java.util.Locale.ROOT);
+            if (Arrays.asList(CLOCK_SIZE_NAMES).contains(clockSize)) e.putString(PREF_CLOCK_SIZE, clockSize);
+            else e.remove(PREF_CLOCK_SIZE);
         }
         // Set only by install.sh's FAKE_INPUT=1, which also installs the throwaway input itself.
         // It is for an emulator, which has no HDMI ports, and never for a real TV.
@@ -1108,9 +1121,9 @@ public class MainActivity extends Activity {
 
     // Hold OK (or Menu) on a top-row app: move it, swap it for another, or take it off the home
     // screen. Removing only takes the tile away: the app stays installed and can be added back.
-    // Apps the user installed can also be uninstalled; Android asks to confirm, and the tile goes
-    // once the app is gone. Apps that came with the TV can't be, so they get App info instead,
-    // where Android offers to turn them off.
+    // Every app gets App info (force stop, clear cache, permissions; for apps that came with the TV
+    // Android offers to turn them off there). Apps the user installed can also be uninstalled;
+    // Android asks to confirm, and the tile goes once the app is gone.
     private void showEditMenu(final String key) {
         final int index = rowApps.indexOf(key);
         if (index < 0) return;
@@ -1118,9 +1131,9 @@ public class MainActivity extends Activity {
         dropdown(tile(key), user ? EDIT_ITEMS : EDIT_ITEMS_SYSTEM, which -> {
             if (which == 0) startMove(key);
             else if (which == 1) showAddMenu(index);
-            else if (which == 3) {
+            else if (which == 3 || which == 4) {
                 Uri pkg = Uri.parse("package:" + key);
-                try { startActivity(user ? new Intent(Intent.ACTION_DELETE, pkg)
+                try { startActivity(which == 4 ? new Intent(Intent.ACTION_DELETE, pkg)
                         : new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, pkg)); }
                 catch (Exception ignored) {}
             } else {
@@ -1524,6 +1537,12 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             return d;
         }
+    }
+
+    // The saved clock size, as an index into CLOCK_SIZE_NAMES (small if none is saved).
+    private int clockSize() {
+        int i = Arrays.asList(CLOCK_SIZE_NAMES).indexOf(prefs().getString(PREF_CLOCK_SIZE, "small"));
+        return i < 0 ? 0 : i;
     }
 
     private int px(int v) {
