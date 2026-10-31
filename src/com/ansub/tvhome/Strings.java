@@ -13,6 +13,7 @@ final class Strings {
         "Move", "Replace", "Remove from home", "Uninstall", "App info",
         "Use the arrows to move it, then press OK", "Every app is already here", "Add an app", "Replace %s", "Wallpaper", "TV settings", "Brightness",
         "Rename", "Show hidden inputs", "TV", "Laptop", "PC", "Blu-ray", "Soundbar", "Type a name…",
+        "Inputs", "Close all apps", "Restart TV", "Cancel", "Couldn't reach the server",
     };
 
     // Keyed by language ("de"), or language-country ("zh-TW") where a country writes it differently.
@@ -29,6 +30,7 @@ final class Strings {
             "Verschieben", "Ersetzen", "Vom Startbildschirm entfernen", "Deinstallieren", "App-Info",
             "Mit den Pfeiltasten verschieben, dann OK drücken", "Alle Apps sind schon da", "App hinzufügen", "%s ersetzen", "Hintergrund", "TV-Einstellungen", "Helligkeit",
             "Umbenennen", "Ausgeblendete Eingänge anzeigen", "TV", "Laptop", "PC", "Blu-ray", "Soundbar", "Namen eingeben…",
+            "Eingänge", "Alle Apps beenden", "Fernseher neu starten", "Abbrechen", "Server nicht erreichbar",
         });
         LANGS.put("es", new String[] {
             "Ajustes", "Añadir app", "Red", "Sin conexión", "Sonido", "Imagen",
