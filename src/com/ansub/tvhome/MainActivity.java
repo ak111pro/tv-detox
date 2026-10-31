@@ -92,6 +92,13 @@ public class MainActivity extends Activity {
     private static final String SETTINGS = "settings";
     private static final String ADD = "add";
     private static final String INPUTS = "inputs"; // the input icon in the top right pill
+    // Optional actions in the pill, each a URL the home screen POSTs to (for example a Home Assistant
+    // webhook that restarts the TV or closes every app over ADB, which an app can't do itself). Set
+    // with --es actions "reboot=<url>,killapps=<url>" ("none" clears them); kept on the TV only.
+    private static final String ACTION = "action:", PREF_ACTIONS = "actions";
+    private static final String[] ACTION_NAMES = {"killapps", "reboot"};
+    private static final String[] ACTION_LABELS = {"Close all apps", "Restart TV"};
+    private static final int[][] ACTION_ICONS = {LineIcon.CLOSE_ALL, LineIcon.POWER};
     private static final String[] EDIT_ITEMS = {"Move", "Replace", "Remove from home", "App info", "Uninstall"};
     private static final String[] EDIT_ITEMS_SYSTEM = {"Move", "Replace", "Remove from home", "App info"};
     private static final int PER_ROW = 5, MAX_INPUTS = 4;
@@ -169,7 +176,7 @@ public class MainActivity extends Activity {
     private FrameLayout root; // the page, inside a vertical scroller
     private int tileW, tileH, gridTop, rowStep; // app grid geometry, set by buildTiles
     private View dockPanel, pillPanel; // the glass behind the dock and behind the top right icons
-    private TextClock pillClock;
+    private TextClock pillClock, pillDate;
     private final List<View> tiles = new ArrayList<>();
     private final Map<View, ValueAnimator> lifts = new WeakHashMap<>(); // a running focus fade per tile
     private boolean dirty = true;
@@ -237,6 +244,12 @@ public class MainActivity extends Activity {
         pillClock.setIncludeFontPadding(false);
         pillClock.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(pillClock, at(0, px(PILL_TOP), -2, px(PILL_H)));
+        // The date next to the time, as 31.10.2026.
+        pillDate = clock("dd.MM.yyyy", "dd.MM.yyyy", px(CLOCK_TIME_PX[clockSize()] * 3 / 5), 0xB3FFFFFF, regular);
+        pillDate.setFontFeatureSettings("tnum");
+        pillDate.setIncludeFontPadding(false);
+        pillDate.setGravity(Gravity.CENTER_VERTICAL);
+        root.addView(pillDate, at(0, px(PILL_TOP), -2, px(PILL_H)));
 
         moveHint = text(px(24), 0xA8FFFFFF, regular);
         moveHint.setText(Strings.t("Use the arrows to move it, then press OK"));
@@ -273,7 +286,8 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         setIntent(intent);
         // A clock change needs the whole page rebuilt; a new app list only needs the tiles.
-        boolean clock = intent != null && (intent.hasExtra("clock") || intent.hasExtra("clocksize"));
+        boolean clock = intent != null && (intent.hasExtra("clock") || intent.hasExtra("clocksize")
+                || intent.hasExtra("actions"));
         if (saveConfig(intent)) {
             if (clock) recreate();
             else buildTiles();
@@ -291,7 +305,9 @@ public class MainActivity extends Activity {
         String clock = intent == null ? null : intent.getStringExtra("clock");
         String fake = intent == null ? null : intent.getStringExtra("fakeinputs");
         String clockSize = intent == null ? null : intent.getStringExtra("clocksize");
-        if (apps == null && quick == null && clock == null && fake == null && clockSize == null) return false;
+        String actions = intent == null ? null : intent.getStringExtra("actions");
+        if (apps == null && quick == null && clock == null && fake == null && clockSize == null
+                && actions == null) return false;
         SharedPreferences prefs = getSharedPreferences(PREFS, 0);
         String stamp = intent.getStringExtra("stamp");
         if (stamp != null && stamp.equals(prefs.getString("stamp", null))) return false;
@@ -316,6 +332,11 @@ public class MainActivity extends Activity {
             clockSize = clockSize.trim().toLowerCase(java.util.Locale.ROOT);
             if (Arrays.asList(CLOCK_SIZE_NAMES).contains(clockSize)) e.putString(PREF_CLOCK_SIZE, clockSize);
             else e.remove(PREF_CLOCK_SIZE);
+        }
+        if (actions != null) {
+            actions = actions.trim();
+            if (actions.isEmpty() || actions.equalsIgnoreCase("none")) e.remove(PREF_ACTIONS);
+            else e.putString(PREF_ACTIONS, actions);
         }
         // Set only by install.sh's FAKE_INPUT=1, which also installs the throwaway input itself.
         // It is for an emulator, which has no HDMI ports, and never for a real TV.
@@ -572,22 +593,33 @@ public class MainActivity extends Activity {
         // picked, the network and the home screen's settings. Added after the apps, so the first app
         // keeps first focus; Up from the dock reaches them.
         List<Integer> quick = quickList();
+        List<Integer> actions = new ArrayList<>();
+        for (int a = 0; a < ACTION_NAMES.length; a++) if (actionUrl(ACTION_NAMES[a]) != null) actions.add(a);
         boolean inputs = !allInputs().isEmpty();
-        int count = (inputs ? 1 : 0) + quick.size() + 2;
+        int count = actions.size() + (inputs ? 1 : 0) + quick.size() + 2;
         int ib = px(ICON_BUTTON), ig = px(ICON_GAP);
         int right = screenW - m;
         int qx = right - px(8) - count * ib - (count - 1) * ig;
         int clockW = (int) Math.ceil(pillClock.getPaint().measureText("00:00"));
-        int clockX = qx - px(20) - clockW;
+        int dateW = (int) Math.ceil(pillDate.getPaint().measureText("00.00.0000"));
+        int dateX = qx - px(20) - dateW;
+        int clockX = dateX - px(14) - clockW;
         FrameLayout.LayoutParams cp = (FrameLayout.LayoutParams) pillClock.getLayoutParams();
         cp.leftMargin = clockX;
         pillClock.setLayoutParams(cp);
+        FrameLayout.LayoutParams dlp = (FrameLayout.LayoutParams) pillDate.getLayoutParams();
+        dlp.leftMargin = dateX;
+        pillDate.setLayoutParams(dlp);
         FrameLayout.LayoutParams pp = (FrameLayout.LayoutParams) pillPanel.getLayoutParams();
         pp.leftMargin = clockX - px(PILL_PAD);
         pp.topMargin = px(PILL_TOP);
         pp.width = right - pp.leftMargin;
         pp.height = px(PILL_H);
         pillPanel.setLayoutParams(pp);
+        for (int a : actions) {
+            addIcon(ACTION + ACTION_NAMES[a], Strings.t(ACTION_LABELS[a]), new LineIcon(ACTION_ICONS[a]), qx);
+            qx += ib + ig;
+        }
         if (inputs) {
             addIcon(INPUTS, Strings.t("Inputs"), new LineIcon(LineIcon.HDMI), qx);
             qx += ib + ig;
@@ -799,6 +831,12 @@ public class MainActivity extends Activity {
             return;
         } else if (INPUTS.equals(key)) {
             showInputs();
+            return;
+        } else if (key.startsWith(ACTION)) {
+            final String name = key.substring(ACTION.length());
+            final String label = ACTION_LABELS[Arrays.asList(ACTION_NAMES).indexOf(name)]; // dropdown translates
+            // Asked first, so a stray OK on the icon never restarts the TV or closes what's playing.
+            dropdown(tile(key), new String[] {label, "Cancel"}, which -> { if (which == 0) runAction(name); });
             return;
         } else if (isInput(key)) {
             openInput(key);
@@ -1581,6 +1619,46 @@ public class MainActivity extends Activity {
         } catch (Throwable t) {
             return d;
         }
+    }
+
+    // The URL saved for an action ("reboot", "killapps"), or null when it isn't set up.
+    private String actionUrl(String name) {
+        String saved = prefs().getString(PREF_ACTIONS, null);
+        if (saved == null) return null;
+        for (String part : saved.split(",")) {
+            int eq = part.indexOf('=');
+            if (eq > 0 && part.substring(0, eq).trim().equals(name)) {
+                String url = part.substring(eq + 1).trim();
+                if (url.startsWith("http://") || url.startsWith("https://")) return url;
+            }
+        }
+        return null;
+    }
+
+    // POSTs to the action's URL off the main thread. Says so on screen if it couldn't be reached.
+    private void runAction(String name) {
+        final String url = actionUrl(name);
+        if (url == null) return;
+        new Thread(() -> {
+            boolean ok = false;
+            java.net.HttpURLConnection c = null;
+            try {
+                c = (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+                c.setConnectTimeout(4000);
+                c.setReadTimeout(4000);
+                c.setRequestMethod("POST");
+                c.setDoOutput(true);
+                c.setRequestProperty("Content-Type", "application/json");
+                c.getOutputStream().write("{}".getBytes("UTF-8"));
+                ok = c.getResponseCode() < 400;
+            } catch (Exception ignored) {
+            } finally {
+                if (c != null) c.disconnect();
+            }
+            final boolean done = ok;
+            if (!done) runOnUiThread(() -> android.widget.Toast.makeText(this,
+                    Strings.t("Couldn't reach the server"), android.widget.Toast.LENGTH_LONG).show());
+        }).start();
     }
 
     // The saved clock size, as an index into CLOCK_SIZE_NAMES (small if none is saved).
