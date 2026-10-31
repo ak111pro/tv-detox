@@ -247,8 +247,8 @@ public class MainActivity extends Activity {
         pillClock.setIncludeFontPadding(false);
         pillClock.setGravity(Gravity.CENTER_VERTICAL);
         root.addView(pillClock, at(0, px(PILL_TOP), -2, px(PILL_H)));
-        // The date next to the time, as 31.10.2026.
-        pillDate = clock("dd.MM.yyyy", "dd.MM.yyyy", px(CLOCK_TIME_PX[clockSize()] * 3 / 5), 0xB3FFFFFF, regular);
+        // The date next to the time, as 31.10.2026: same size, a little dimmer.
+        pillDate = clock("dd.MM.yyyy", "dd.MM.yyyy", px(CLOCK_TIME_PX[clockSize()]), 0xB3FFFFFF, regular);
         pillDate.setFontFeatureSettings("tnum");
         pillDate.setIncludeFontPadding(false);
         pillDate.setGravity(Gravity.CENTER_VERTICAL);
