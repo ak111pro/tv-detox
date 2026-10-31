@@ -134,14 +134,17 @@ public class MainActivity extends Activity {
     // Long enough to read as motion, short enough that a run of d-pad presses never feels behind.
     private static final int FOCUS_MS = 180, RADIUS_UP = 10;
     private static final Interpolator FOCUS_EASE = new DecelerateInterpolator(1.8f);
-    // Apple-TV-like page: a glass pill at the top right (clock, inputs, network, settings), a glass
-    // dock holding the first PER_ROW apps, and the other apps in rows of PER_ROW below it.
+    // Apple-TV-like page: a glass pill at the top right (clock, inputs, network, settings) and the
+    // apps in rows of PER_ROW. A glass frame sits around the row that has focus and glides along
+    // when focus changes rows; rows are spaced so the frame fits around any of them.
     private static final int PILL_TOP = 56, PILL_H = 88, PILL_PAD = 28;
-    private static final int DOCK_TOP = 184, DOCK_PAD = 30, DOCK_RADIUS = 44, DOCK_GAP_BELOW = 56, ROW_GAP = 48;
+    private static final int DOCK_TOP = 184, DOCK_PAD = 30, DOCK_RADIUS = 44, PANEL_GAP = 24;
     private static final int ICON_TOP = PILL_TOP + (PILL_H - 72) / 2, ICON_BUTTON = 72, ICON_SIZE = 40, ICON_GAP = 8;
 
     // The Settings tile opens a small menu: the home screen's own settings, then the TV's.
-    private static final String[] SETTINGS_ITEMS = {"Wallpaper", "Brightness", "TV settings"};
+    // Brightness is left out: on the Philips TVs this fork runs on, the picture page it opens has no
+    // effect on the backlight.
+    private static final String[] SETTINGS_ITEMS = {"Wallpaper", "TV settings"};
     // Android TV 11 and later (Google TV too) has no Display page, but its "Display & Sound" page holds Picture.
     private static final String[] TV_DISPLAY_SOUND = {"com.android.tv.settings",
             "com.android.tv.settings.device.displaysound.DisplaySoundActivity"};
@@ -174,7 +177,7 @@ public class MainActivity extends Activity {
     private static Typeface regular, semibold;
 
     private FrameLayout root; // the page, inside a vertical scroller
-    private int tileW, tileH, gridTop, rowStep; // app grid geometry, set by buildTiles
+    private int tileW, tileH, rowStep; // app grid geometry, set by buildTiles
     private View dockPanel, pillPanel; // the glass behind the dock and behind the top right icons
     private TextClock pillClock, pillDate;
     private final List<View> tiles = new ArrayList<>();
@@ -553,8 +556,7 @@ public class MainActivity extends Activity {
         int h = w * 9 / 16;
         tileW = w;
         tileH = h;
-        rowStep = h + px(ROW_GAP);
-        gridTop = px(DOCK_TOP) + h + 2 * pad + px(DOCK_GAP_BELOW);
+        rowStep = h + 2 * pad + px(PANEL_GAP);
         FrameLayout.LayoutParams dp = (FrameLayout.LayoutParams) dockPanel.getLayoutParams();
         dp.leftMargin = m;
         dp.topMargin = px(DOCK_TOP);
@@ -689,7 +691,10 @@ public class MainActivity extends Activity {
 
         final boolean glass = banner == null;
         card.setOnFocusChangeListener((v, has) -> {
-            if (has) focusedKey = key;
+            if (has) {
+                focusedKey = key;
+                frameRow(((FrameLayout.LayoutParams) ((View) v.getParent()).getLayoutParams()).topMargin, true);
+            }
             lift(v, bg, has, glass ? 0x13FFFFFF : 0xFF1E1A1C, glass ? 0x38FFFFFF : 0xFF1E1A1C,
                     px(RADIUS), px(RADIUS + RADIUS_UP));
             if (!key.equals(movingKey)) ((FrameLayout) v).setForeground(has ? ring : null);
@@ -1419,14 +1424,23 @@ public class MainActivity extends Activity {
         getSharedPreferences(PREFS, 0).edit().putString("apps", android.text.TextUtils.join(",", rowApps)).apply();
     }
 
-    // Where tile number i sits: the first PER_ROW in the dock, the rest in rows below it.
+    // Where tile number i sits: rows of PER_ROW, the first one where the frame starts.
     private int gridX(int i) {
         return px(MARGIN) + px(DOCK_PAD) + (i % PER_ROW) * (tileW + px(GAP));
     }
 
     private int gridY(int i) {
-        if (i < PER_ROW) return px(DOCK_TOP) + px(DOCK_PAD);
-        return gridTop + (i - PER_ROW) / PER_ROW * rowStep;
+        return px(DOCK_TOP) + px(DOCK_PAD) + i / PER_ROW * rowStep;
+    }
+
+    // Glides the frame to the row of the tile at y (a tile's top), or puts it there at once.
+    private void frameRow(int y, boolean animate) {
+        if (rowStep <= 0) return;
+        int row = Math.max(0, Math.round((y - px(DOCK_TOP) - px(DOCK_PAD)) / (float) rowStep));
+        float to = row * rowStep;
+        dockPanel.animate().cancel();
+        if (animate) dockPanel.animate().translationY(to).setDuration(FOCUS_MS).setInterpolator(FOCUS_EASE).start();
+        else dockPanel.setTranslationY(to);
     }
 
     // A quiet glass panel: translucent fill with a faint edge, no blur, so it costs nothing per frame.
@@ -1474,6 +1488,7 @@ public class MainActivity extends Activity {
                     lp.topMargin = gridY(i);
                     wrap.setLayoutParams(lp);
                 }
+                frameRow(gridY(to), true);
                 // Scroll along with it once it has moved.
                 final View card = tile(key);
                 card.post(() -> card.requestRectangleOnScreen(
