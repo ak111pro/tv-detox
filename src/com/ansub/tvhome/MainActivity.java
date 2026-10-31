@@ -628,8 +628,7 @@ public class MainActivity extends Activity {
         int qx = pillX + in8;
         for (TvInputInfo in : inputs) {
             final String id = in.getId();
-            addIcon(id, inputLabel(in), new LineIcon(inputGlyph(inputLabel(in)), portNumber(in)), qx,
-                    () -> showInputMenu(id));
+            addIcon(id, inputLabel(in), inputIcon(inputLabel(in)), qx, () -> showInputMenu(id));
             qx += ib + ig;
         }
         for (int q : quick) {
@@ -1226,24 +1225,20 @@ public class MainActivity extends Activity {
         });
     }
 
-    // The glyph for an input, from its name: a gamepad for consoles, a disc for players, a screen
-    // for computers, a speaker for a soundbar, else the plain HDMI plug.
-    private static int[] inputGlyph(String name) {
+    // The icon for an input, from its name: Material Design Icons (res/drawable/mdi_*.xml) for
+    // consoles, computers, players and soundbars, else the HDMI plug.
+    private Drawable inputIcon(String name) {
         String n = name.toLowerCase(java.util.Locale.ROOT);
-        if (n.contains("switch") || n.contains("nintendo") || n.contains("playstation") || n.contains("xbox")
-                || n.contains("console")) return LineIcon.GAMEPAD;
-        if (n.contains("blu") || n.contains("dvd")) return LineIcon.DISC;
-        if (n.contains("pc") || n.contains("laptop") || n.contains("computer") || n.contains("mac")) return LineIcon.MONITOR;
-        if (n.contains("soundbar") || n.contains("audio")) return LineIcon.SOUND;
-        return LineIcon.HDMI;
-    }
-
-    // The port number when the TV's own label is just "HDMI 2", else null: a label the TV took from
-    // the device over CEC ("PlayStation 4", "Xbox 360") has a number that isn't the port.
-    private String portNumber(TvInputInfo in) {
-        java.util.regex.Matcher m = java.util.regex.Pattern.compile("^\\s*HDMI\\s*(\\d+)\\s*$",
-                java.util.regex.Pattern.CASE_INSENSITIVE).matcher(tvInputLabel(in));
-        return m.find() ? m.group(1) : null;
+        String icon = n.contains("xbox") ? "mdi_microsoft_xbox"
+                : n.contains("playstation") || n.contains("ps4") || n.contains("ps5") ? "mdi_sony_playstation"
+                : n.contains("switch") || n.contains("nintendo") ? "mdi_nintendo_switch"
+                : n.contains("computer") || n.contains("pc") || n.contains("laptop") || n.contains("mac") ? "mdi_monitor"
+                : n.contains("blu") || n.contains("dvd") ? "mdi_disc_player"
+                : n.contains("soundbar") || n.contains("audio") ? "mdi_soundbar"
+                : "mdi_video_input_hdmi";
+        int id = getResources().getIdentifier(icon, "drawable", getPackageName());
+        try { return getResources().getDrawable(id, null); }
+        catch (Exception e) { return new LineIcon(LineIcon.HDMI); }
     }
 
     // The TV's own name comes first, and picking it resets the custom one; the rest are the usual
